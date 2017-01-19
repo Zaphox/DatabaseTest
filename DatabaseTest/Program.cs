@@ -49,10 +49,10 @@ namespace DatabaseTest
 
                 // At this point the DB should have a Person who owns two houses and two garages,
                 // one with and one without the corresponding Garage_House relation.
-            //}
+            }
 
-            //using (TestContext db = new TestContext())
-            //{
+            using (TestContext db = new TestContext())
+            {
                 // Being able to get all Garages of a Person
                 foreach (Person person in db.Persons)
                 {
