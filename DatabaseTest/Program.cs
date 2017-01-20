@@ -1,4 +1,4 @@
-﻿using MySql.Data.Entity;
+using MySql.Data.Entity;
 using System;
 using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
@@ -20,32 +20,21 @@ namespace DatabaseTest
             using (TestContext db = new TestContext())
             {
                 Person samplePerson = new Person();
+
                 House noGarage = new House();
                 Garage noHouse = new Garage();
-                
+
                 House oneGarage = new House();
                 Garage oneHouse = new Garage();
                 oneGarage.Garage = oneHouse;
-                oneHouse.House = oneGarage;
 
-                samplePerson.Garages.Add(noHouse);
-                samplePerson.Garages.Add(oneHouse);
-
-                samplePerson.Houses.Add(noGarage);
-                samplePerson.Houses.Add(oneGarage);
+                samplePerson.Buildings.Add(noHouse);
+                samplePerson.Buildings.Add(oneHouse);
+                samplePerson.Buildings.Add(oneGarage);
+                samplePerson.Buildings.Add(noGarage);
 
                 db.Persons.Add(samplePerson);
-                try
-                {
-                    db.SaveChanges();
-                }
-                catch (DbEntityValidationException ex)
-                {
-                    foreach (DbEntityValidationResult res in ex.EntityValidationErrors)
-                    {
-                        Console.WriteLine(res.Entry);
-                    }
-                }
+                db.SaveChanges();
 
                 // At this point the DB should have a Person who owns two houses and two garages,
                 // one with and one without the corresponding Garage_House relation.
@@ -54,39 +43,33 @@ namespace DatabaseTest
             using (TestContext db = new TestContext())
             {
                 // Being able to get all Garages of a Person
-                foreach (Person person in db.Persons)
+                foreach (Person person in db.Persons.ToList())
                 {
-                    if (person.Garages.Count != 2) // One Garage with House, one standalone Garage
+                    if (person.Buildings.OfType<Garage>().Count() != 2) // One Garage with House, one standalone Garage
                         Console.WriteLine($"Person {person.Id} is borked (mismatched Garages).");
-                    if (person.Houses.Count != 2) // Same as above
+                    if (person.Buildings.OfType<House>().Count() != 2) // Same as above
                         Console.WriteLine($"Person {person.Id} is borked (mismatched Houses).");
                 }
 
                 // Being able to access a Person from a House from a Garage
-                if (db.Garages.Count(g => g.House != null) == db.Persons.Count())
+                if (db.Buildings.OfType<Garage>().Count(g => db.Buildings.OfType<House>().Count(h => h.Garage.Id == g.Id) > 0) != db.Persons.Count())
                     Console.WriteLine("Amount of Garages with a House not equal to amount of People.");
-                if (db.Houses.Count(h => h.Garage != null) == db.Persons.Count())
+                if (db.Buildings.OfType<House>().Count(h => h.Garage != null) != db.Persons.Count())
                     Console.WriteLine("Amount of Houses with a Garage not equal to amount of People.");
 
-                foreach (Garage garage in db.Garages.ToList().Where(g => g.House != null))
+                foreach (Garage garage in db.Buildings.OfType<Garage>().Where(g => db.Buildings.OfType<House>().Count(h => h.Garage.Id == g.Id) == 0).ToList())
                 {
-                    if (garage.Person == null)
+                    if (db.Persons.Where(p => p.Buildings.Count(g => g.Id == garage.Id) > 0).FirstOrDefault() == null)
                         Console.WriteLine($"Garage {garage.Id} has no associated Person.");
 
-                    if (garage.House.Person == null)
-                        Console.WriteLine($"House {garage.House.Id} has no associated Person.");
+                    // Every person has 1 house with and 1 without a garage
+                    if (db.Persons.Count(p => p.Buildings.OfType<House>().Count(b => b.Garage.Id == garage.Id) > 1) > 0)
+                        Console.WriteLine($"There are people with multiple houses with no garage");
                 }
-
-                // Having Houses and Garages be optional
-                if (db.Garages.Count(g => g.House == null) == db.Persons.Count())
-                    Console.WriteLine("Amount of Garages without a House not equal to amount of People.");
-
-                if (db.Houses.Count(h => h.Garage == null) == db.Persons.Count())
-                    Console.WriteLine("Amount of Houses without a Garage not equal to amount of People.");
-
-                foreach (House house in db.Houses.Where(h => h.Garage == null))
+                
+                foreach (House house in db.Buildings.OfType<House>().Where(h => h.Garage == null).ToList())
                 {
-                    if (house.Person == null)
+                    if (db.Persons.Where(p => p.Buildings.Count(b => b.Id == house.Id) > 0).FirstOrDefault() == null)
                         Console.WriteLine($"House {house.Id} has no associated Person.");
                 }
             }
@@ -98,30 +81,12 @@ namespace DatabaseTest
     {
         public TestContext() : base("Server=localhost;Database=test;Uid=test;Pwd=test;") { }
 
-        protected override void OnModelCreating(DbModelBuilder modelBuilder)
-        {
-            modelBuilder.Entity<House>()
-                .HasOptional(h => h.Garage)
-                .WithOptionalPrincipal()
-                .Map(m => m.MapKey("House_Id"));
-
-            modelBuilder.Entity<Garage>()
-                .HasOptional(g => g.House)
-                .WithOptionalPrincipal()
-                .Map(m => m.MapKey("Garage_Id"));
-        }
-
         public DbSet<Person> Persons
         {
             get; set;
         }
 
-        public DbSet<Garage> Garages
-        {
-            get; set;
-        }
-
-        public DbSet<House> Houses
+        public DbSet<Building> Buildings
         {
             get; set;
         }
@@ -131,31 +96,7 @@ namespace DatabaseTest
     {
         public Person()
         {
-            this.Houses = new List<House>();
-            this.Garages = new List<Garage>();
-        }
-
-        public int Id
-        {
-            get; set;
-        }
-
-        public virtual List<House> Houses
-        {
-            get; set;
-        }
-
-        public virtual List<Garage> Garages
-        {
-            get; set;
-        }
-    }
-
-    public class House
-    {
-        public House()
-        {
-
+            this.Buildings = new List<Building>();
         }
         
         public int Id
@@ -163,35 +104,55 @@ namespace DatabaseTest
             get; set;
         }
 
-        public virtual Garage Garage
+        public virtual List<Building> Buildings
+        {
+            get; set;
+        }
+    }
+
+    public abstract class Building
+    {
+        public Building()
+        {
+
+        }
+
+        public int Id
         {
             get; set;
         }
 
-        public virtual Person Person
+
+        public Person Person
+        {
+            get; set;
+        }
+    }
+
+    public class House : Building
+    {
+        public House()
+        {
+        }
+
+        public Garage Garage
+        {
+            get; set;
+        }
+
+        public string Style
         {
             get; set;
         }
     }
     
-    public class Garage
+    public class Garage : Building
     {
         public Garage()
         {
-
-        }
-        
-        public int Id
-        {
-            get; set;
         }
 
-        public House House
-        {
-            get; set;
-        }
-
-        public virtual Person Person
+        public int Size
         {
             get; set;
         }
